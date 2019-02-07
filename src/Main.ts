@@ -3,7 +3,7 @@
 
 const BLOCKS_IN_WIDTH = 4;
 const BLOCK_SIZE_PER_WIDTH = 1/BLOCKS_IN_WIDTH;
-const BALL_SIZE_PER_WIDTH = 1/12;
+const BALL_SIZE_PER_WIDTH = BLOCK_SIZE_PER_WIDTH / 2;
 
 class Main extends egret.DisplayObjectContainer {
 
@@ -13,12 +13,15 @@ class Main extends egret.DisplayObjectContainer {
     }
  
     private addToStage() {
-        Game.init();
         GameObject.initial( this.stage );
-        new Background();
-        new Ball();
-        new BlockWave();
-        this.addEventListener(egret.Event.ENTER_FRAME,GameObject.process,this);
+        Game.init();
+        // this.addEventListener(egret.Event.ENTER_FRAME,GameObject.process,this);
+        egret.startTick(this.tickLoop, this);
+    }
+
+    tickLoop(timeStamp:number):boolean{
+        GameObject.process();
+        return false;
     }
 }
 
@@ -30,6 +33,11 @@ class Game{
     static init() {
         this.height = egret.MainContext.instance.stage.stageHeight;
         this.width  = egret.MainContext.instance.stage.stageWidth;
+        
+        new Background();
+        new Ball();
+        new BlockWave();
+        new ScorePoint();
     }
 
     static random(min:number, max:number):number {
@@ -62,10 +70,12 @@ abstract class GameObject {
     abstract update() : void;
 
     destroy() { this.deleteFlag = true; }
+    onDestroy(){}   // virtual method
 
     // system
     private static objects: GameObject[];
     protected static display: egret.DisplayObjectContainer;
+    public static transit:()=>void;
 
     static initial(displayObjectContainer: egret.DisplayObjectContainer){
         GameObject.objects = [];
@@ -77,49 +87,79 @@ abstract class GameObject {
             if( obj.deleteFlag ) obj.delete();
             return ( !obj.deleteFlag );
         } );
+        if( GameObject.transit ) {
+            GameObject.dispose();
+            GameObject.display.removeChildren();
+            GameObject.transit();
+            GameObject.transit = null;
+        }
     }
     static dispose(){
-        this.objects.forEach( obj => obj.delete() );
+        GameObject.objects.forEach( obj => { obj.destroy(); obj.delete(); } );
+        GameObject.objects = GameObject.objects.filter( obj =>{ return false } );
         GameObject.objects = [];
     }
 
-    private deleteFlag;
+    protected deleteFlag;
     private delete(){
         if( this.shape ){
             GameObject.display.removeChild(this.shape);
             this.shape = null;
         }
+        this.onDestroy();
     }
 }
 
 class Ball extends GameObject{
 
     static I:Ball = null;   // singleton instance
+
+    readonly defaultHp:number = 5;
+    readonly maxHp:number = 15;
+    hp:number;
+    radiusPerHp:number;
     radius:number;
     maxSpeed:number;
-    speed:number;           // 0~maxSpeed
+    speed:number;
     touchOffsetX:number = 0;
     stopFlag:boolean = false;
+    invincible:number = 0;
 
     constructor() {
         super();
 
         Ball.I = this;
-        this.radius = Game.width * BALL_SIZE_PER_WIDTH * 0.5;
-        this.maxSpeed = Game.height / (2 * 60);
-        this.speed = this.maxSpeed;
+        console.log( "Ball " + this.toString());
 
-        this.shape = new egret.Shape();
-        this.shape.graphics.beginFill(0xffc000);
-        this.shape.graphics.drawCircle(0, 0, this.radius);
-        this.shape.graphics.endFill();
-        GameObject.display.addChild(this.shape);
+        this.hp = this.defaultHp;
+        this.radiusPerHp = Game.width * BALL_SIZE_PER_WIDTH * 0.5 / this.defaultHp;
+        this.radius = this.radiusPerHp * this.hp;
+        this.speed = this.maxSpeed = Game.height / (3 * 60);
 
-        this.shape.x = Game.width *0.5;
-        this.shape.y = Game.height*0.7;
+        this.setShape(Game.width *0.5, Game.height *0.7, this.radius);
 
         GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_BEGIN, (e: egret.TouchEvent) => this.touchBegin(e), this);
         GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_MOVE, (e: egret.TouchEvent) => this.touchMove(e), this);
+    }
+
+    onDestroy(){
+        console.log( "Ball onDestroy()" + this.toString());
+        GameObject.display.stage.removeEventListener(egret.TouchEvent.TOUCH_BEGIN, (e: egret.TouchEvent) => this.touchBegin(e), this);
+        GameObject.display.stage.removeEventListener(egret.TouchEvent.TOUCH_MOVE, (e: egret.TouchEvent) => this.touchMove(e), this);
+        Ball.I = null;
+    }
+
+    setShape(x:number, y:number, radius:number){
+        if( this.shape )
+            GameObject.display.removeChild(this.shape);
+        
+        this.shape = new egret.Shape();
+        this.shape.graphics.beginFill(0xffc000);
+        this.shape.graphics.drawCircle(0, 0, radius);
+        this.shape.graphics.endFill();
+        GameObject.display.addChild(this.shape);
+        this.shape.x = x;
+        this.shape.y = y;
     }
     
     update() {
@@ -127,25 +167,50 @@ class Ball extends GameObject{
             this.stopFlag = false;
             this.speed = 0;
         }
+
+        if( this.hp <= 0 )
+            return;
+
         this.speed += Game.clamp( this.maxSpeed - this.speed, 0, this.maxSpeed*0.1 );
         this.shape.y += Game.clamp( Game.height*0.7-this.shape.y, -1, 1 );
+
+        if( this.invincible > 0 ){
+            this.invincible -= 1;
+            this.shape.alpha = (this.invincible & 0x4) === 0 ? 1 : 0.5;
+        }
     }
 
     touchBegin(e:egret.TouchEvent){
+        if( this.hp <= 0 )
+            return;
         this.touchOffsetX = this.shape.x - e.localX;
-        console.log( "touchBegin " + this.touchOffsetX );
     }
     touchMove(e:egret.TouchEvent){
+        if( this.hp <= 0 )
+            return;
         this.shape.x = e.localX + this.touchOffsetX;
         this.shape.x = Game.clamp( this.shape.x, this.radius, Game.width - this.radius );
         this.touchOffsetX = this.shape.x - e.localX;
-        //console.log( "touchMove " + this.shape.x );
     }
     conflict(dx:number, dy:number){
         this.shape.x += dx;
         this.shape.y += dy;
         this.touchOffsetX += dx;
-        if( dy > 0 ) this.stopFlag = true;
+        if( dy > 0 ){
+            this.stopFlag = true;
+        }
+        if( this.invincible <= 0 ){
+            this.invincible = 60;
+            
+            this.hp = this.hp - 1;
+            if( this.hp <= 0 ){
+                new GameOver();
+                this.stopFlag = true;
+                return;
+            }
+            this.radius = this.radiusPerHp * this.hp;
+            this.setShape(this.shape.x, this.shape.y, this.radius);
+        }
     }
 }
 
@@ -172,6 +237,7 @@ class Block extends GameObject{
         this.shape.graphics.drawRect(-0.5*this.size, -0.5*this.size, this.size, this.size);
         this.shape.graphics.endFill();
         GameObject.display.addChild(this.shape);
+        GameObject.display.setChildIndex(this.shape, 2);
         this.shape.x = x;
         this.shape.y = y;
     }
@@ -226,7 +292,7 @@ class BlockWave extends GameObject{
         if( this.progress >= blockSize*2 ) {
             this.progress -= blockSize*2;
             
-            if( Game.randomInt(0,1) == 0 ){
+            if( Game.randomInt(0,1) === 0 ){
                 for( let i=0 ; i<6 ; i++ ){
                     if( Game.randomInt(0,3) > 0 ){
                         new Block( blockHalf + blockSize * i, 0, Game.randomInt(1,Block.maxHp) );
@@ -254,4 +320,73 @@ class Background extends GameObject{
     }
     
     update() {}
+}
+
+class ScorePoint extends GameObject{
+
+    static text:egret.TextField = null;
+
+    score:number;
+
+    constructor() {
+        super();
+
+        this.score = 0;
+
+        const text = new egret.TextField();
+        GameObject.display.addChild( text );
+        text.text = "SCORE:" + this.score.toFixed();
+        text.textColor = 0xffffff;
+        text.x = (Game.width-text.width) / 2;
+        text.y = 0;//(Game.height - text.height) / 2;
+        ScorePoint.text = text;
+    }
+    
+    onDestroy() {
+        GameObject.display.removeChild( ScorePoint.text );
+        ScorePoint.text = null;
+    }
+
+    update() {
+        this.score += Ball.I.speed * 0.1;
+        ScorePoint.text.text = "SCORE:" + this.score.toFixed();
+    }
+}
+
+class GameOver extends GameObject{
+
+    static text:egret.TextField = null;
+
+    constructor() {
+        super();
+
+        const text = new egret.TextField();
+        GameObject.display.addChild( text );
+        text.text = "GAME OVER";
+        text.bold = true;
+        text.size = Game.width / 12;
+        text.textColor = 0xe000ff;
+        text.x = (Game.width - text.width) / 2;
+        text.y = (Game.height - text.height) / 2;
+        GameOver.text = text;
+        
+        GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_BEGIN, (e: egret.TouchEvent) => this.tap(e), this);
+    }
+
+    onDestroy() {
+        GameObject.display.removeChild( GameOver.text );
+        GameObject.display.stage.removeEventListener(egret.TouchEvent.TOUCH_BEGIN, (e: egret.TouchEvent) => this.tap(e), this);
+        GameOver.text = null;
+    }
+    
+    update() { }
+
+    tap(e:egret.TouchEvent){
+        if( this.deleteFlag )
+            return;
+        
+        GameObject.transit = Game.init;
+
+        this.destroy();
+    }
 }
