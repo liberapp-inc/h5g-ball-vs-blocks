@@ -367,12 +367,10 @@ var GameOver = (function (_super) {
         GameObject.display.addChild(_this.textGameOver);
         _this.textScore = Game.newTextField("SCORE : " + Score.point.toFixed(), Game.width / 12, 0xffff00, 0.5, 0.55, true);
         GameObject.display.addChild(_this.textScore);
-        GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_BEGIN, function (e) { return _this.tap(e); }, _this);
+        GameObject.display.once(egret.TouchEvent.TOUCH_BEGIN, function (e) { return _this.tap(e); }, _this);
         return _this;
     }
     GameOver.prototype.onDestroy = function () {
-        var _this = this;
-        GameObject.display.stage.removeEventListener(egret.TouchEvent.TOUCH_BEGIN, function (e) { return _this.tap(e); }, this);
         GameObject.display.removeChild(this.textGameOver);
         this.textGameOver = null;
         GameObject.display.removeChild(this.textScore);
@@ -380,8 +378,6 @@ var GameOver = (function (_super) {
     };
     GameOver.prototype.update = function () { };
     GameOver.prototype.tap = function (e) {
-        if (this.deleteFlag)
-            return;
         GameObject.transit = Game.init;
         this.destroy();
     };
