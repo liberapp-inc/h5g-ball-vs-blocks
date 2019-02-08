@@ -42,7 +42,7 @@ var Game = (function () {
         new Background();
         new Ball();
         new BlockWave();
-        new ScorePoint();
+        new Score();
     };
     Game.random = function (min, max) {
         return min + Math.random() * (max - min);
@@ -59,6 +59,16 @@ var Game = (function () {
     };
     Game.color = function (r, g, b) {
         return (Math.floor(r * 0xff) * 0x010000 + Math.floor(g * 0xff) * 0x0100 + Math.floor(b * 0xff));
+    };
+    Game.newTextField = function (text, size, color, xRatio, yRatio, bold) {
+        var tf = new egret.TextField();
+        tf.text = text;
+        tf.bold = bold;
+        tf.size = size;
+        tf.textColor = color;
+        tf.x = (Game.width - tf.width) * xRatio;
+        tf.y = (Game.height - tf.height) * yRatio;
+        return tf;
     };
     return Game;
 }());
@@ -83,7 +93,6 @@ var GameObject = (function () {
         });
         if (GameObject.transit) {
             GameObject.dispose();
-            GameObject.display.removeChildren();
             GameObject.transit();
             GameObject.transit = null;
         }
@@ -94,11 +103,11 @@ var GameObject = (function () {
         GameObject.objects = [];
     };
     GameObject.prototype.delete = function () {
+        this.onDestroy();
         if (this.shape) {
             GameObject.display.removeChild(this.shape);
             this.shape = null;
         }
-        this.onDestroy();
     };
     return GameObject;
 }());
@@ -107,13 +116,11 @@ var Ball = (function (_super) {
     __extends(Ball, _super);
     function Ball() {
         var _this = _super.call(this) || this;
-        _this.defaultHp = 5;
-        _this.maxHp = 15;
+        _this.defaultHp = 8;
         _this.touchOffsetX = 0;
         _this.stopFlag = false;
         _this.invincible = 0;
         Ball.I = _this;
-        console.log("Ball " + _this.toString());
         _this.hp = _this.defaultHp;
         _this.radiusPerHp = Game.width * BALL_SIZE_PER_WIDTH * 0.5 / _this.defaultHp;
         _this.radius = _this.radiusPerHp * _this.hp;
@@ -125,7 +132,6 @@ var Ball = (function (_super) {
     }
     Ball.prototype.onDestroy = function () {
         var _this = this;
-        console.log("Ball onDestroy()" + this.toString());
         GameObject.display.stage.removeEventListener(egret.TouchEvent.TOUCH_BEGIN, function (e) { return _this.touchBegin(e); }, this);
         GameObject.display.stage.removeEventListener(egret.TouchEvent.TOUCH_MOVE, function (e) { return _this.touchMove(e); }, this);
         Ball.I = null;
@@ -169,22 +175,30 @@ var Ball = (function (_super) {
     };
     Ball.prototype.conflict = function (dx, dy) {
         this.shape.x += dx;
+        this.shape.x = Game.clamp(this.shape.x, this.radius, Game.width - this.radius);
         this.shape.y += dy;
         this.touchOffsetX += dx;
         if (dy > 0) {
             this.stopFlag = true;
         }
         if (this.invincible <= 0) {
-            this.invincible = 60;
+            this.invincible = 15;
             this.hp = this.hp - 1;
             if (this.hp <= 0) {
                 new GameOver();
                 this.stopFlag = true;
-                return;
+                return true;
             }
             this.radius = this.radiusPerHp * this.hp;
             this.setShape(this.shape.x, this.shape.y, this.radius);
+            return true;
         }
+        return false; // no damage
+    };
+    Ball.prototype.eatDot = function () {
+        this.hp += 1;
+        this.radius = this.radiusPerHp * this.hp;
+        this.setShape(this.shape.x, this.shape.y, this.radius);
     };
     Ball.I = null; // singleton instance
     return Ball;
@@ -194,7 +208,7 @@ var Block = (function (_super) {
     __extends(Block, _super);
     function Block(x, y, hp) {
         var _this = _super.call(this) || this;
-        _this.size = Game.width * BLOCK_SIZE_PER_WIDTH * 0.9;
+        _this.size = Game.width * BLOCK_SIZE_PER_WIDTH * 0.95;
         _this.hp = hp;
         _this.setShape(x, y);
         return _this;
@@ -222,27 +236,58 @@ var Block = (function (_super) {
         var rr = r * r;
         if (dx2 < rr && dy2 < rr) {
             if (dx2 < dy2 && dy > 0) {
-                Ball.I.conflict(0, r - dy + Ball.I.maxSpeed * 0.2);
-                this.hp -= 1;
-                this.setShape(this.shape.x, this.shape.y);
-                if (this.hp <= 0)
-                    this.destroy();
+                if (Ball.I.conflict(0, r - dy + Ball.I.maxSpeed * 0.2)) {
+                    this.hp -= 1;
+                    this.setShape(this.shape.x, this.shape.y);
+                    if (this.hp <= 0)
+                        this.destroy();
+                }
             }
             else {
                 Ball.I.conflict((dx > 0 ? r : -r) - dx, 0);
             }
         }
-        if (this.shape.y >= Game.height)
+        if (this.shape.y >= Game.height + this.size * 0.5)
             this.destroy();
     };
     Block.getColor = function (hp) {
-        var rate = Game.clamp((hp - 1) / (Block.maxHp - 1), 0, 1);
+        var rate = Game.clamp((hp - 1) / (Block.maxHp - 1), 0, 1) * 0.7 + 0.3;
         return Game.color(rate, 1 - rate, 1 - rate * 0.25);
     };
-    Block.maxHp = 64;
+    Block.maxHp = 8;
     return Block;
 }(GameObject));
 __reflect(Block.prototype, "Block");
+var DotEnergy = (function (_super) {
+    __extends(DotEnergy, _super);
+    function DotEnergy(x, y) {
+        var _this = _super.call(this) || this;
+        _this.radius = Game.width * BALL_SIZE_PER_WIDTH * 0.5 * 0.5;
+        _this.shape = new egret.Shape();
+        _this.shape.graphics.beginFill(0xffc000);
+        _this.shape.graphics.drawCircle(0, 0, _this.radius);
+        _this.shape.graphics.endFill();
+        GameObject.display.addChild(_this.shape);
+        _this.shape.x = x;
+        _this.shape.y = y;
+        return _this;
+    }
+    DotEnergy.prototype.update = function () {
+        this.shape.y += Ball.I.speed;
+        // collision
+        var dx = Ball.I.shape.x - this.shape.x;
+        var dy = Ball.I.shape.y - this.shape.y;
+        var r = Ball.I.radius + this.radius;
+        if (dx * dx + dy * dy < r * r) {
+            Ball.I.eatDot();
+            this.destroy();
+        }
+        if (this.shape.y >= Game.height)
+            this.destroy();
+    };
+    return DotEnergy;
+}(GameObject));
+__reflect(DotEnergy.prototype, "DotEnergy");
 var BlockWave = (function (_super) {
     __extends(BlockWave, _super);
     function BlockWave() {
@@ -257,15 +302,19 @@ var BlockWave = (function (_super) {
         if (this.progress >= blockSize * 2) {
             this.progress -= blockSize * 2;
             if (Game.randomInt(0, 1) === 0) {
-                for (var i = 0; i < 6; i++) {
-                    if (Game.randomInt(0, 3) > 0) {
-                        new Block(blockHalf + blockSize * i, 0, Game.randomInt(1, Block.maxHp));
+                for (var i = 0; i < BLOCKS_IN_WIDTH; i++) {
+                    if (Game.randomInt(0, 2) > 0) {
+                        new Block(blockHalf + blockSize * i, -blockHalf, Game.randomInt(1, Block.maxHp));
                     }
                 }
             }
             else {
                 var i = Game.randomInt(0, BLOCKS_IN_WIDTH);
-                new Block(blockHalf + blockSize * i, 0, Game.randomInt(1, Block.maxHp));
+                new Block(blockHalf + blockSize * i, -blockHalf, Game.randomInt(1, Block.maxHp));
+                if (Game.randomInt(0, 3) === 0) {
+                    i = (i + Game.randomInt(1, BLOCKS_IN_WIDTH - 1)) % BLOCKS_IN_WIDTH;
+                    new DotEnergy(blockHalf + blockSize * i, -blockHalf);
+                }
             }
         }
     };
@@ -287,53 +336,47 @@ var Background = (function (_super) {
     return Background;
 }(GameObject));
 __reflect(Background.prototype, "Background");
-var ScorePoint = (function (_super) {
-    __extends(ScorePoint, _super);
-    function ScorePoint() {
+var Score = (function (_super) {
+    __extends(Score, _super);
+    function Score() {
         var _this = _super.call(this) || this;
-        _this.score = 0;
-        var text = new egret.TextField();
-        GameObject.display.addChild(text);
-        text.text = "SCORE:" + _this.score.toFixed();
-        text.textColor = 0xffffff;
-        text.x = (Game.width - text.width) / 2;
-        text.y = 0; //(Game.height - text.height) / 2;
-        ScorePoint.text = text;
+        _this.text = null;
+        Score.point = 0;
+        _this.text = Game.newTextField("SCORE : 0", Game.width / 18, 0xffff00, 0.5, 0.0, true);
+        GameObject.display.addChild(_this.text);
         return _this;
     }
-    ScorePoint.prototype.onDestroy = function () {
-        GameObject.display.removeChild(ScorePoint.text);
-        ScorePoint.text = null;
+    Score.prototype.onDestroy = function () {
+        GameObject.display.removeChild(this.text);
+        this.text = null;
     };
-    ScorePoint.prototype.update = function () {
-        this.score += Ball.I.speed * 0.1;
-        ScorePoint.text.text = "SCORE:" + this.score.toFixed();
+    Score.prototype.update = function () {
+        Score.point += Ball.I.speed / (Game.width * BLOCK_SIZE_PER_WIDTH);
+        this.text.text = "SCORE : " + Score.point.toFixed();
     };
-    ScorePoint.text = null;
-    return ScorePoint;
+    return Score;
 }(GameObject));
-__reflect(ScorePoint.prototype, "ScorePoint");
+__reflect(Score.prototype, "Score");
 var GameOver = (function (_super) {
     __extends(GameOver, _super);
     function GameOver() {
         var _this = _super.call(this) || this;
-        var text = new egret.TextField();
-        GameObject.display.addChild(text);
-        text.text = "GAME OVER";
-        text.bold = true;
-        text.size = Game.width / 12;
-        text.textColor = 0xe000ff;
-        text.x = (Game.width - text.width) / 2;
-        text.y = (Game.height - text.height) / 2;
-        GameOver.text = text;
+        _this.textGameOver = null;
+        _this.textScore = null;
+        _this.textGameOver = Game.newTextField("GAME OVER", Game.width / 10, 0xffff00, 0.5, 0.45, true);
+        GameObject.display.addChild(_this.textGameOver);
+        _this.textScore = Game.newTextField("SCORE : " + Score.point.toFixed(), Game.width / 12, 0xffff00, 0.5, 0.55, true);
+        GameObject.display.addChild(_this.textScore);
         GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_BEGIN, function (e) { return _this.tap(e); }, _this);
         return _this;
     }
     GameOver.prototype.onDestroy = function () {
         var _this = this;
-        GameObject.display.removeChild(GameOver.text);
         GameObject.display.stage.removeEventListener(egret.TouchEvent.TOUCH_BEGIN, function (e) { return _this.tap(e); }, this);
-        GameOver.text = null;
+        GameObject.display.removeChild(this.textGameOver);
+        this.textGameOver = null;
+        GameObject.display.removeChild(this.textScore);
+        this.textScore = null;
     };
     GameOver.prototype.update = function () { };
     GameOver.prototype.tap = function (e) {
@@ -342,7 +385,6 @@ var GameOver = (function (_super) {
         GameObject.transit = Game.init;
         this.destroy();
     };
-    GameOver.text = null;
     return GameOver;
 }(GameObject));
 __reflect(GameOver.prototype, "GameOver");

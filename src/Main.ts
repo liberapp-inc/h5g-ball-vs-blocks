@@ -37,7 +37,7 @@ class Game{
         new Background();
         new Ball();
         new BlockWave();
-        new ScorePoint();
+        new Score();
     }
 
     static random(min:number, max:number):number {
@@ -57,6 +57,17 @@ class Game{
     static color( r:number, g:number, b:number):number {
         return ( Math.floor(r * 0xff)*0x010000 + Math.floor(g * 0xff)*0x0100 + Math.floor(b * 0xff) );
     }
+
+    static newTextField(text:string, size:number, color:number, xRatio:number, yRatio:number, bold:boolean): egret.TextField {
+        let tf = new egret.TextField();
+        tf.text = text;
+        tf.bold = bold;
+        tf.size = size;
+        tf.textColor = color;
+        tf.x = (Game.width  - tf.width)  * xRatio;
+        tf.y = (Game.height - tf.height) * yRatio;
+        return tf;
+    }
 }
 
 abstract class GameObject {
@@ -74,7 +85,7 @@ abstract class GameObject {
 
     // system
     private static objects: GameObject[];
-    protected static display: egret.DisplayObjectContainer;
+    public static display: egret.DisplayObjectContainer;
     public static transit:()=>void;
 
     static initial(displayObjectContainer: egret.DisplayObjectContainer){
@@ -89,24 +100,23 @@ abstract class GameObject {
         } );
         if( GameObject.transit ) {
             GameObject.dispose();
-            GameObject.display.removeChildren();
             GameObject.transit();
             GameObject.transit = null;
         }
     }
     static dispose(){
         GameObject.objects.forEach( obj => { obj.destroy(); obj.delete(); } );
-        GameObject.objects = GameObject.objects.filter( obj =>{ return false } );
+        GameObject.objects = GameObject.objects.filter( obj => false );
         GameObject.objects = [];
     }
 
     protected deleteFlag;
     private delete(){
+        this.onDestroy();
         if( this.shape ){
             GameObject.display.removeChild(this.shape);
             this.shape = null;
         }
-        this.onDestroy();
     }
 }
 
@@ -114,8 +124,7 @@ class Ball extends GameObject{
 
     static I:Ball = null;   // singleton instance
 
-    readonly defaultHp:number = 5;
-    readonly maxHp:number = 15;
+    readonly defaultHp:number = 8;
     hp:number;
     radiusPerHp:number;
     radius:number;
@@ -129,21 +138,16 @@ class Ball extends GameObject{
         super();
 
         Ball.I = this;
-        console.log( "Ball " + this.toString());
-
         this.hp = this.defaultHp;
         this.radiusPerHp = Game.width * BALL_SIZE_PER_WIDTH * 0.5 / this.defaultHp;
         this.radius = this.radiusPerHp * this.hp;
         this.speed = this.maxSpeed = Game.height / (3 * 60);
-
         this.setShape(Game.width *0.5, Game.height *0.7, this.radius);
-
         GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_BEGIN, (e: egret.TouchEvent) => this.touchBegin(e), this);
         GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_MOVE, (e: egret.TouchEvent) => this.touchMove(e), this);
     }
 
     onDestroy(){
-        console.log( "Ball onDestroy()" + this.toString());
         GameObject.display.stage.removeEventListener(egret.TouchEvent.TOUCH_BEGIN, (e: egret.TouchEvent) => this.touchBegin(e), this);
         GameObject.display.stage.removeEventListener(egret.TouchEvent.TOUCH_MOVE, (e: egret.TouchEvent) => this.touchMove(e), this);
         Ball.I = null;
@@ -192,31 +196,40 @@ class Ball extends GameObject{
         this.shape.x = Game.clamp( this.shape.x, this.radius, Game.width - this.radius );
         this.touchOffsetX = this.shape.x - e.localX;
     }
-    conflict(dx:number, dy:number){
+
+    conflict(dx:number, dy:number): boolean{
         this.shape.x += dx;
+        this.shape.x = Game.clamp( this.shape.x, this.radius, Game.width - this.radius );
         this.shape.y += dy;
         this.touchOffsetX += dx;
         if( dy > 0 ){
             this.stopFlag = true;
         }
         if( this.invincible <= 0 ){
-            this.invincible = 60;
-            
+            this.invincible = 15;
             this.hp = this.hp - 1;
             if( this.hp <= 0 ){
                 new GameOver();
                 this.stopFlag = true;
-                return;
+                return true;
             }
             this.radius = this.radiusPerHp * this.hp;
             this.setShape(this.shape.x, this.shape.y, this.radius);
+            return true;
         }
+        return false;   // no damage
+    }
+
+    eatDot(){
+        this.hp += 1;
+        this.radius = this.radiusPerHp * this.hp;
+        this.setShape(this.shape.x, this.shape.y, this.radius);
     }
 }
 
 class Block extends GameObject{
 
-    static readonly maxHp:number = 64;
+    static readonly maxHp:number = 8;
 
     size:number;
     hp:number;
@@ -224,9 +237,8 @@ class Block extends GameObject{
     constructor( x:number, y:number, hp:number ) {
         super();
 
-        this.size = Game.width * BLOCK_SIZE_PER_WIDTH * 0.9;
+        this.size = Game.width * BLOCK_SIZE_PER_WIDTH * 0.95;
         this.hp = hp;
-
         this.setShape(x, y);
     }
     setShape( x:number, y:number ){
@@ -255,24 +267,60 @@ class Block extends GameObject{
 
         if( dx2 < rr && dy2 < rr){
             if( dx2 < dy2 && dy > 0 ){
-                Ball.I.conflict( 0, r - dy + Ball.I.maxSpeed*0.2 );
-                this.hp -= 1;
-                this.setShape(this.shape.x, this.shape.y);
-                if( this.hp <= 0 )
-                    this.destroy();
+                if( Ball.I.conflict( 0, r - dy + Ball.I.maxSpeed*0.2 ) ){
+                    this.hp -= 1;
+                    this.setShape(this.shape.x, this.shape.y);
+                    if( this.hp <= 0 )
+                        this.destroy();
+                }
             }
             else{
                 Ball.I.conflict( (dx>0 ? r : -r ) - dx, 0 );
             }
         }
         
-        if( this.shape.y >= Game.height )
+        if( this.shape.y >= Game.height + this.size * 0.5 )
             this.destroy();
     }
 
     static getColor( hp:number ): number{
-        let rate = Game.clamp((hp-1) / (Block.maxHp-1), 0, 1);
+        let rate = Game.clamp((hp-1) / (Block.maxHp-1), 0, 1) * 0.7 + 0.3;
         return Game.color( rate, 1-rate, 1-rate*0.25);
+    }
+}
+
+class DotEnergy extends GameObject{
+
+    radius:number;
+
+    constructor( x:number, y:number ) {
+        super();
+
+        this.radius = Game.width * BALL_SIZE_PER_WIDTH * 0.5 * 0.5;
+        this.shape = new egret.Shape();
+        this.shape.graphics.beginFill(0xffc000);
+        this.shape.graphics.drawCircle(0, 0, this.radius);
+        this.shape.graphics.endFill();
+        GameObject.display.addChild(this.shape);
+        this.shape.x = x;
+        this.shape.y = y;
+    }
+    
+    update() {
+        this.shape.y += Ball.I.speed;
+
+        // collision
+        let dx = Ball.I.shape.x - this.shape.x;
+        let dy = Ball.I.shape.y - this.shape.y;
+        let r = Ball.I.radius + this.radius;
+
+        if( dx*dx + dy*dy < r*r ){
+            Ball.I.eatDot();
+            this.destroy();
+        }
+        
+        if( this.shape.y >= Game.height )
+            this.destroy();
     }
 }
 
@@ -293,15 +341,20 @@ class BlockWave extends GameObject{
             this.progress -= blockSize*2;
             
             if( Game.randomInt(0,1) === 0 ){
-                for( let i=0 ; i<6 ; i++ ){
-                    if( Game.randomInt(0,3) > 0 ){
-                        new Block( blockHalf + blockSize * i, 0, Game.randomInt(1,Block.maxHp) );
+                for( let i=0 ; i<BLOCKS_IN_WIDTH ; i++ ){
+                    if( Game.randomInt(0,2) > 0 ){
+                        new Block( blockHalf + blockSize * i, -blockHalf, Game.randomInt(1,Block.maxHp) );
                     }
                 }
             }
             else{
                 let i = Game.randomInt(0,BLOCKS_IN_WIDTH);
-                new Block( blockHalf + blockSize * i, 0, Game.randomInt(1,Block.maxHp) );
+                new Block( blockHalf + blockSize * i, -blockHalf, Game.randomInt(1,Block.maxHp) );
+
+                if( Game.randomInt(0,3) === 0){
+                    i = ( i + Game.randomInt(1,BLOCKS_IN_WIDTH-1) ) % BLOCKS_IN_WIDTH;
+                    new DotEnergy( blockHalf + blockSize * i, -blockHalf );
+                }
             }
         }
     }
@@ -322,61 +375,53 @@ class Background extends GameObject{
     update() {}
 }
 
-class ScorePoint extends GameObject{
+class Score extends GameObject{
 
-    static text:egret.TextField = null;
-
-    score:number;
+    static point:number;
+    text:egret.TextField = null;
 
     constructor() {
         super();
 
-        this.score = 0;
-
-        const text = new egret.TextField();
-        GameObject.display.addChild( text );
-        text.text = "SCORE:" + this.score.toFixed();
-        text.textColor = 0xffffff;
-        text.x = (Game.width-text.width) / 2;
-        text.y = 0;//(Game.height - text.height) / 2;
-        ScorePoint.text = text;
+        Score.point = 0;
+        this.text = Game.newTextField("SCORE : 0", Game.width / 18, 0xffff00, 0.5, 0.0, true);
+        GameObject.display.addChild( this.text );
     }
     
     onDestroy() {
-        GameObject.display.removeChild( ScorePoint.text );
-        ScorePoint.text = null;
+        GameObject.display.removeChild( this.text );
+        this.text = null;
     }
 
     update() {
-        this.score += Ball.I.speed * 0.1;
-        ScorePoint.text.text = "SCORE:" + this.score.toFixed();
+        Score.point += Ball.I.speed / (Game.width * BLOCK_SIZE_PER_WIDTH);
+        this.text.text = "SCORE : " + Score.point.toFixed();
     }
 }
 
 class GameOver extends GameObject{
 
-    static text:egret.TextField = null;
+    textGameOver:egret.TextField = null;
+    textScore:egret.TextField = null;
 
     constructor() {
         super();
 
-        const text = new egret.TextField();
-        GameObject.display.addChild( text );
-        text.text = "GAME OVER";
-        text.bold = true;
-        text.size = Game.width / 12;
-        text.textColor = 0xe000ff;
-        text.x = (Game.width - text.width) / 2;
-        text.y = (Game.height - text.height) / 2;
-        GameOver.text = text;
+        this.textGameOver = Game.newTextField("GAME OVER", Game.width / 10, 0xffff00, 0.5, 0.45, true);
+        GameObject.display.addChild( this.textGameOver );
         
+        this.textScore = Game.newTextField("SCORE : " + Score.point.toFixed(), Game.width / 12, 0xffff00, 0.5, 0.55, true);
+        GameObject.display.addChild( this.textScore );
+
         GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_BEGIN, (e: egret.TouchEvent) => this.tap(e), this);
     }
 
     onDestroy() {
-        GameObject.display.removeChild( GameOver.text );
         GameObject.display.stage.removeEventListener(egret.TouchEvent.TOUCH_BEGIN, (e: egret.TouchEvent) => this.tap(e), this);
-        GameOver.text = null;
+        GameObject.display.removeChild( this.textGameOver );
+        this.textGameOver = null;
+        GameObject.display.removeChild( this.textScore );
+        this.textScore = null;
     }
     
     update() { }
@@ -386,7 +431,6 @@ class GameOver extends GameObject{
             return;
         
         GameObject.transit = Game.init;
-
         this.destroy();
     }
 }
