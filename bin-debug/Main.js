@@ -22,6 +22,7 @@ var Main = (function (_super) {
     }
     Main.prototype.addToStage = function () {
         GameObject.initial(this.stage);
+        Util.init();
         Game.init();
         // this.addEventListener(egret.Event.ENTER_FRAME,GameObject.process,this);
         egret.startTick(this.tickLoop, this);
@@ -33,42 +34,50 @@ var Main = (function (_super) {
     return Main;
 }(egret.DisplayObjectContainer));
 __reflect(Main.prototype, "Main");
-var Game = (function () {
-    function Game() {
+var Util = (function () {
+    function Util() {
     }
-    Game.init = function () {
+    Util.init = function () {
         this.height = egret.MainContext.instance.stage.stageHeight;
         this.width = egret.MainContext.instance.stage.stageWidth;
-        new Background();
-        new Ball();
-        new BlockWave();
-        new Score();
     };
-    Game.random = function (min, max) {
+    Util.random = function (min, max) {
         return min + Math.random() * (max - min);
     };
-    Game.randomInt = function (min, max) {
+    Util.randomInt = function (min, max) {
         return Math.floor(min + Math.random() * (max + 0.999 - min));
     };
-    Game.clamp = function (value, min, max) {
+    Util.clamp = function (value, min, max) {
         if (value < min)
             value = min;
         if (value > max)
             value = max;
         return value;
     };
-    Game.color = function (r, g, b) {
+    Util.color = function (r, g, b) {
         return (Math.floor(r * 0xff) * 0x010000 + Math.floor(g * 0xff) * 0x0100 + Math.floor(b * 0xff));
     };
-    Game.newTextField = function (text, size, color, xRatio, yRatio, bold) {
+    Util.newTextField = function (text, size, color, xRatio, yRatio, bold) {
         var tf = new egret.TextField();
         tf.text = text;
         tf.bold = bold;
         tf.size = size;
         tf.textColor = color;
-        tf.x = (Game.width - tf.width) * xRatio;
-        tf.y = (Game.height - tf.height) * yRatio;
+        tf.x = (Util.width - tf.width) * xRatio;
+        tf.y = (Util.height - tf.height) * yRatio;
         return tf;
+    };
+    return Util;
+}());
+__reflect(Util.prototype, "Util");
+var Game = (function () {
+    function Game() {
+    }
+    Game.init = function () {
+        new Background();
+        new Ball();
+        new BlockWave();
+        new Score();
     };
     return Game;
 }());
@@ -79,7 +88,7 @@ var GameObject = (function () {
         GameObject.objects.push(this);
     }
     GameObject.prototype.destroy = function () { this.deleteFlag = true; };
-    GameObject.prototype.onDestroy = function () { }; // virtual method
+    GameObject.prototype.onDestroy = function () { };
     GameObject.initial = function (displayObjectContainer) {
         GameObject.objects = [];
         GameObject.display = displayObjectContainer;
@@ -98,9 +107,7 @@ var GameObject = (function () {
         }
     };
     GameObject.dispose = function () {
-        GameObject.objects.forEach(function (obj) { obj.destroy(); obj.delete(); });
-        GameObject.objects = GameObject.objects.filter(function (obj) { return false; });
-        GameObject.objects = [];
+        GameObject.objects = GameObject.objects.filter(function (obj) { obj.destroy(); obj.delete(); return false; });
     };
     GameObject.prototype.delete = function () {
         this.onDestroy();
@@ -122,10 +129,10 @@ var Ball = (function (_super) {
         _this.invincible = 0;
         Ball.I = _this;
         _this.hp = _this.defaultHp;
-        _this.radiusPerHp = Game.width * BALL_SIZE_PER_WIDTH * 0.5 / _this.defaultHp;
+        _this.radiusPerHp = Util.width * BALL_SIZE_PER_WIDTH * 0.5 / _this.defaultHp;
         _this.radius = _this.radiusPerHp * _this.hp;
-        _this.speed = _this.maxSpeed = Game.height / (3 * 60);
-        _this.setShape(Game.width * 0.5, Game.height * 0.7, _this.radius);
+        _this.speed = _this.maxSpeed = Util.height / (3 * 60);
+        _this.setShape(Util.width * 0.5, Util.height * 0.7, _this.radius);
         GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_BEGIN, function (e) { return _this.touchBegin(e); }, _this);
         GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_MOVE, function (e) { return _this.touchMove(e); }, _this);
         return _this;
@@ -154,8 +161,8 @@ var Ball = (function (_super) {
         }
         if (this.hp <= 0)
             return;
-        this.speed += Game.clamp(this.maxSpeed - this.speed, 0, this.maxSpeed * 0.1);
-        this.shape.y += Game.clamp(Game.height * 0.7 - this.shape.y, -1, 1);
+        this.speed += Util.clamp(this.maxSpeed - this.speed, 0, this.maxSpeed * 0.1);
+        this.shape.y += Util.clamp(Util.height * 0.7 - this.shape.y, -1, 1);
         if (this.invincible > 0) {
             this.invincible -= 1;
             this.shape.alpha = (this.invincible & 0x4) === 0 ? 1 : 0.5;
@@ -170,12 +177,12 @@ var Ball = (function (_super) {
         if (this.hp <= 0)
             return;
         this.shape.x = e.localX + this.touchOffsetX;
-        this.shape.x = Game.clamp(this.shape.x, this.radius, Game.width - this.radius);
+        this.shape.x = Util.clamp(this.shape.x, this.radius, Util.width - this.radius);
         this.touchOffsetX = this.shape.x - e.localX;
     };
     Ball.prototype.conflict = function (dx, dy) {
         this.shape.x += dx;
-        this.shape.x = Game.clamp(this.shape.x, this.radius, Game.width - this.radius);
+        this.shape.x = Util.clamp(this.shape.x, this.radius, Util.width - this.radius);
         this.shape.y += dy;
         this.touchOffsetX += dx;
         if (dy > 0) {
@@ -208,7 +215,7 @@ var Block = (function (_super) {
     __extends(Block, _super);
     function Block(x, y, hp) {
         var _this = _super.call(this) || this;
-        _this.size = Game.width * BLOCK_SIZE_PER_WIDTH * 0.95;
+        _this.size = Util.width * BLOCK_SIZE_PER_WIDTH * 0.95;
         _this.hp = hp;
         _this.setShape(x, y);
         return _this;
@@ -247,12 +254,12 @@ var Block = (function (_super) {
                 Ball.I.conflict((dx > 0 ? r : -r) - dx, 0);
             }
         }
-        if (this.shape.y >= Game.height + this.size * 0.5)
+        if (this.shape.y >= Util.height + this.size * 0.5)
             this.destroy();
     };
     Block.getColor = function (hp) {
-        var rate = Game.clamp((hp - 1) / (Block.maxHp - 1), 0, 1) * 0.7 + 0.3;
-        return Game.color(rate, 1 - rate, 1 - rate * 0.25);
+        var rate = Util.clamp((hp - 1) / (Block.maxHp - 1), 0, 1) * 0.7 + 0.3;
+        return Util.color(rate, 1 - rate, 1 - rate * 0.25);
     };
     Block.maxHp = 8;
     return Block;
@@ -262,7 +269,7 @@ var DotEnergy = (function (_super) {
     __extends(DotEnergy, _super);
     function DotEnergy(x, y) {
         var _this = _super.call(this) || this;
-        _this.radius = Game.width * BALL_SIZE_PER_WIDTH * 0.5 * 0.5;
+        _this.radius = Util.width * BALL_SIZE_PER_WIDTH * 0.5 * 0.5;
         _this.shape = new egret.Shape();
         _this.shape.graphics.beginFill(0xffc000);
         _this.shape.graphics.drawCircle(0, 0, _this.radius);
@@ -282,7 +289,7 @@ var DotEnergy = (function (_super) {
             Ball.I.eatDot();
             this.destroy();
         }
-        if (this.shape.y >= Game.height)
+        if (this.shape.y >= Util.height)
             this.destroy();
     };
     return DotEnergy;
@@ -296,23 +303,23 @@ var BlockWave = (function (_super) {
         return _this;
     }
     BlockWave.prototype.update = function () {
-        var blockSize = Game.width * BLOCK_SIZE_PER_WIDTH;
+        var blockSize = Util.width * BLOCK_SIZE_PER_WIDTH;
         var blockHalf = blockSize * 0.5;
         this.progress += Ball.I.speed;
         if (this.progress >= blockSize * 2) {
             this.progress -= blockSize * 2;
-            if (Game.randomInt(0, 1) === 0) {
+            if (Util.randomInt(0, 1) === 0) {
                 for (var i = 0; i < BLOCKS_IN_WIDTH; i++) {
-                    if (Game.randomInt(0, 2) > 0) {
-                        new Block(blockHalf + blockSize * i, -blockHalf, Game.randomInt(1, Block.maxHp));
+                    if (Util.randomInt(0, 2) > 0) {
+                        new Block(blockHalf + blockSize * i, -blockHalf, Util.randomInt(1, Block.maxHp));
                     }
                 }
             }
             else {
-                var i = Game.randomInt(0, BLOCKS_IN_WIDTH);
-                new Block(blockHalf + blockSize * i, -blockHalf, Game.randomInt(1, Block.maxHp));
-                if (Game.randomInt(0, 3) === 0) {
-                    i = (i + Game.randomInt(1, BLOCKS_IN_WIDTH - 1)) % BLOCKS_IN_WIDTH;
+                var i = Util.randomInt(0, BLOCKS_IN_WIDTH);
+                new Block(blockHalf + blockSize * i, -blockHalf, Util.randomInt(1, Block.maxHp));
+                if (Util.randomInt(0, 3) === 0) {
+                    i = (i + Util.randomInt(1, BLOCKS_IN_WIDTH - 1)) % BLOCKS_IN_WIDTH;
                     new DotEnergy(blockHalf + blockSize * i, -blockHalf);
                 }
             }
@@ -327,7 +334,7 @@ var Background = (function (_super) {
         var _this = _super.call(this) || this;
         _this.shape = new egret.Shape();
         _this.shape.graphics.beginFill(0x000000);
-        _this.shape.graphics.drawRect(0, 0, Game.width, Game.height);
+        _this.shape.graphics.drawRect(0, 0, Util.width, Util.height);
         _this.shape.graphics.endFill();
         GameObject.display.addChild(_this.shape);
         return _this;
@@ -342,7 +349,7 @@ var Score = (function (_super) {
         var _this = _super.call(this) || this;
         _this.text = null;
         Score.point = 0;
-        _this.text = Game.newTextField("SCORE : 0", Game.width / 18, 0xffff00, 0.5, 0.0, true);
+        _this.text = Util.newTextField("SCORE : 0", Util.width / 18, 0xffff00, 0.5, 0.0, true);
         GameObject.display.addChild(_this.text);
         return _this;
     }
@@ -351,7 +358,7 @@ var Score = (function (_super) {
         this.text = null;
     };
     Score.prototype.update = function () {
-        Score.point += Ball.I.speed / (Game.width * BLOCK_SIZE_PER_WIDTH);
+        Score.point += Ball.I.speed / (Util.width * BLOCK_SIZE_PER_WIDTH);
         this.text.text = "SCORE : " + Score.point.toFixed();
     };
     return Score;
@@ -363,9 +370,9 @@ var GameOver = (function (_super) {
         var _this = _super.call(this) || this;
         _this.textGameOver = null;
         _this.textScore = null;
-        _this.textGameOver = Game.newTextField("GAME OVER", Game.width / 10, 0xffff00, 0.5, 0.45, true);
+        _this.textGameOver = Util.newTextField("GAME OVER", Util.width / 10, 0xffff00, 0.5, 0.45, true);
         GameObject.display.addChild(_this.textGameOver);
-        _this.textScore = Game.newTextField("SCORE : " + Score.point.toFixed(), Game.width / 12, 0xffff00, 0.5, 0.55, true);
+        _this.textScore = Util.newTextField("SCORE : " + Score.point.toFixed(), Util.width / 12, 0xffff00, 0.5, 0.55, true);
         GameObject.display.addChild(_this.textScore);
         GameObject.display.once(egret.TouchEvent.TOUCH_BEGIN, function (e) { return _this.tap(e); }, _this);
         return _this;
