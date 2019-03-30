@@ -73,6 +73,7 @@ class Game{
         new Ball();
         new BlockWave();
         new Score();
+        new StartMessage();
     }
 }
 
@@ -135,8 +136,9 @@ class Ball extends GameObject{
     maxSpeed:number;
     speed:number;
     touchOffsetX:number = 0;
-    stopFlag:boolean = false;
+    stopFlag:boolean = true;
     invincible:number = 0;
+    started:boolean = false;
 
     constructor() {
         super();
@@ -145,7 +147,8 @@ class Ball extends GameObject{
         this.hp = this.defaultHp;
         this.radiusPerHp = Util.width * BALL_SIZE_PER_WIDTH * 0.5 / this.defaultHp;
         this.radius = this.radiusPerHp * this.hp;
-        this.speed = this.maxSpeed = Util.height / (3 * 60);
+        this.maxSpeed = Util.height / (3 * 60);
+        this.speed = 0;
         this.setShape(Util.width *0.5, Util.height *0.7, this.radius);
         GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_BEGIN, (e: egret.TouchEvent) => this.touchBegin(e), this);
         GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_MOVE, (e: egret.TouchEvent) => this.touchMove(e), this);
@@ -171,13 +174,13 @@ class Ball extends GameObject{
     }
     
     update() {
+        if( this.hp <= 0 || this.started == false )
+            return;
+
         if( this.stopFlag ){
             this.stopFlag = false;
             this.speed = 0;
         }
-
-        if( this.hp <= 0 )
-            return;
 
         this.speed += Util.clamp( this.maxSpeed - this.speed, 0, this.maxSpeed*0.1 );
         this.shape.y += Util.clamp( Util.height*0.7-this.shape.y, -1, 1 );
@@ -215,6 +218,7 @@ class Ball extends GameObject{
             if( this.hp <= 0 ){
                 new GameOver();
                 this.stopFlag = true;
+                this.speed = 0;
                 return true;
             }
             this.radius = this.radiusPerHp * this.hp;

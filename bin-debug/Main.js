@@ -78,6 +78,7 @@ var Game = (function () {
         new Ball();
         new BlockWave();
         new Score();
+        new StartMessage();
     };
     return Game;
 }());
@@ -125,13 +126,15 @@ var Ball = (function (_super) {
         var _this = _super.call(this) || this;
         _this.defaultHp = 8;
         _this.touchOffsetX = 0;
-        _this.stopFlag = false;
+        _this.stopFlag = true;
         _this.invincible = 0;
+        _this.started = false;
         Ball.I = _this;
         _this.hp = _this.defaultHp;
         _this.radiusPerHp = Util.width * BALL_SIZE_PER_WIDTH * 0.5 / _this.defaultHp;
         _this.radius = _this.radiusPerHp * _this.hp;
-        _this.speed = _this.maxSpeed = Util.height / (3 * 60);
+        _this.maxSpeed = Util.height / (3 * 60);
+        _this.speed = 0;
         _this.setShape(Util.width * 0.5, Util.height * 0.7, _this.radius);
         GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_BEGIN, function (e) { return _this.touchBegin(e); }, _this);
         GameObject.display.stage.addEventListener(egret.TouchEvent.TOUCH_MOVE, function (e) { return _this.touchMove(e); }, _this);
@@ -155,12 +158,12 @@ var Ball = (function (_super) {
         this.shape.y = y;
     };
     Ball.prototype.update = function () {
+        if (this.hp <= 0 || this.started == false)
+            return;
         if (this.stopFlag) {
             this.stopFlag = false;
             this.speed = 0;
         }
-        if (this.hp <= 0)
-            return;
         this.speed += Util.clamp(this.maxSpeed - this.speed, 0, this.maxSpeed * 0.1);
         this.shape.y += Util.clamp(Util.height * 0.7 - this.shape.y, -1, 1);
         if (this.invincible > 0) {
@@ -194,6 +197,7 @@ var Ball = (function (_super) {
             if (this.hp <= 0) {
                 new GameOver();
                 this.stopFlag = true;
+                this.speed = 0;
                 return true;
             }
             this.radius = this.radiusPerHp * this.hp;
